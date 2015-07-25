@@ -52,7 +52,7 @@ TVector3 Norm(TVector3 v){
 void thrust(const int startfile=0,int endfile=-1,int radius=3){
 
   bool DEBUG=false;
-  bool DEBUG_SHORT=true;
+  bool DEBUG_SHORT=false;
   TH1::SetDefaultSumw2();
 
 
