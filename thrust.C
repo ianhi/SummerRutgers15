@@ -49,10 +49,13 @@ TVector3 Norm(TVector3 v){
   return TVector3(v(0)/mag,v(1)/mag,v(2)/mag);
 }
 
-void thrust(const int startfile=0,int endfile=-1,int radius=3){
+void thrust(const int startfile=0,int endfile=-1,int radius=3,
+	    bool DEBUG_SHORT=false,
+	    bool DEBUG=false
+	    ){
 
-  bool DEBUG=false;
-  bool DEBUG_SHORT=false;
+
+
   TH1::SetDefaultSumw2();
 
 
@@ -96,10 +99,13 @@ void thrust(const int startfile=0,int endfile=-1,int radius=3){
     instr >> filename;
   }
   cout<<"Running on "<<endfile-startfile<<" forest files"<<endl;
-
-  TFile fOUT(Form("thrust_weight_R%d_%d.root",radius,endfile),"RECREATE");
-  cout<<"Output: "<<Form("thrust_weight_R%d_%d.root",radius,endfile)<<endl;
+  std::string outname="";
+  if(DEBUG_SHORT) outname=Form("ROOT/thrust_DEBUG_R%d_%d.root",radius,endfile);
+  else outname=Form("ROOT/thrust_weight_R%d_%d.root",radius,endfile);
+  cout<<"Output: "<<outname<<endl;
+  TFile fOUT(outname.c_str(),"RECREATE");
   fOUT.cd();
+
   //==========+++DEFINE HISTOGRAMS============================
   TH1F * hTHRUST = new TH1F("THRUST","",50,0,1);
   
@@ -110,7 +116,7 @@ void thrust(const int startfile=0,int endfile=-1,int radius=3){
     instr >> filename;
     weightName.str(""); weightName<<"weights/weights_pp_"<<ifile+1<<".root";
  
-    if(DEBUG) cout<<"ifile: "<<ifile<<"\nFile: "<<filename<<endl<<"weightFile: "<<weightName.str()<<"\n\n";
+    cout<<"ifile: "<<ifile<<"\nFile: "<<filename<<endl<<"weightFile: "<<weightName.str()<<"\n\n";
     //OPEN INPUT FILES======================================
     TFile *fin = TFile::Open(filename.c_str());//data file
     if(DEBUG) cout<<"OPENED FILE\n";
@@ -152,6 +158,7 @@ void thrust(const int startfile=0,int endfile=-1,int radius=3){
       //
       //
       //=================
+      if(ie%1000==0) cout<<"Event: "<<ie<<endl;
       if(DEBUG) cout<<"START OF EVENT LOOP"<<endl;
       jetTree->GetEntry(ie);
       weights->GetEntry(ie);
@@ -165,20 +172,23 @@ void thrust(const int startfile=0,int endfile=-1,int radius=3){
 	}
       }
       if(DEBUG) cout<<"goodJet size: "<<goodJet.size()<<endl;
-    
+      if(goodJet.size()==0){
+	if(DEBUG)  cout<<"skipping due to goodJet size\n";
+	continue;
+      }
       //=============THRUST AXIS - assume on jet axis
       denominator=0;
       for(int i=0;i<goodJet.size();++i){
       
 	px[i] = goodJet[i]*TMath::Cos(phi[i]);
 	py[i] = goodJet[i]*TMath::Sin(phi[i]);
-	pz[i] = goodJet[i]*TMath::Cos(2*TMath::ATan(TMath::Exp(-1*eta[i])));
+	pz[i] = goodJet[i]*TMath::SinH(eta[i]);
 	p[i] = TVector3(px[i],py[i],pz[i]);
 	nT[i] = Norm(TVector3(px[i],py[i],pz[i]));  
 	denominator+=p[i].Mag();
 	if(DEBUG) cout<<"Magnitude: "<<p[i].Mag()<<endl;
+	if(DEBUG) cout<<"nT Mag: "<<nT[i].Mag()<<endl;
       }
-      
       maxNumerator=0;
       for(int i=0;i<goodJet.size();++i){
 	numerator=0;
@@ -186,28 +196,51 @@ void thrust(const int startfile=0,int endfile=-1,int radius=3){
 	for(int il=0;il<goodJet.size();++il){//il for inner loop
 	  numerator += nT[i].Dot(p[il]);
         }
+	if(ie==55){
+	  p[i].Print("base");
+	  nT[i].Print("base");
+	  cout<<"Numerator: "<<numerator<<endl;
+	  cout<<"Max Numerator: "<<maxNumerator<<endl;
+	}
 	if(numerator>maxNumerator){
 	  maxNumerator=numerator;
 	}
       }
+      Float_t T =maxNumerator/denominator;  
       if(DEBUG){
 	cout<<"maxNumerator: "<<maxNumerator<<endl;
 	cout<<"denominator: "<<denominator<<endl;
+	cout<<"Thrust: "<<T<<endl;
       }
-      Float_t T =maxNumerator/denominator;    
+      if(T<.5){
+	cout<<"event: "<<ie<<endl;
+	cout<<"nref: "<<nref<<endl;
+	cout<<"goodJet Size: "<<goodJet.size()<<endl<<endl;
+	/*	for(int i=0;i<goodJet.size();++i){
+	  
+	  for(int il=0;il<goodJet.size();++i){
+	    cout<<"Magnitude: "<<p[il].Mag()<<endl;
+	    cout<<"Numerator: "<< nT[i].Dot(p[il])<<endl<<endl;
+	  }
+
+	  }*/
+	cout<<"maxNumerator: "<<maxNumerator<<endl;
+	cout<<"denominator: "<<denominator<<endl;
+	cout<<"Thrust: "<<T<<endl;
+      }
       hTHRUST->Fill(T,pthatweight);
 
 
       //THRUST MINOR
       /*
-	Thoughts on best way to find an orthogonal vecotor. Based on this: http://math.stackexchange.com/questions/137362/how-to-find-perpendicular-vector-to-another-vector
-	get two vectors each orthogonal to original vector, each will have one component =0. then linear combos of these vectors as new thrust minor axes. I think you can assume that thrust will vary in a continuous fashion as we rotate the vector so quesiton becomes how to find maximum,optimization problem!!. Once this is figured out it shouldn't be too hard to apply to 3D case.
+//	Thoughts on best way to find an orthogonal vecotor. Based on this: http://math.stackexchange.com/questions/137362/how-to-find-perpendicular-vector-to-another-vector
+//	get two vectors each orthogonal to original vector, each will have one component =0. then linear combos of these vectors as new thrust minor axes. I think you can assume that thrust will vary in a continuous fashion as we rotate the vector so quesiton becomes how to find maximum,optimization problem!!. Once this is figured out it shouldn't be too hard to apply to 3D case.
 
-	I think that coordinate cycling is a good solution here. see: 
-http://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=3&ved=0CDAQFjACahUKEwilyPfVzfXGAhUL0IAKHdxIDF4&url=http%3A%2F%2Fmathforcollege.com%2Fnm%2Fmws%2Fgen%2F09opt%2Fmws_gen_opt_txt_multidirect.doc&ei=RSazVeWRLouggwTckbHwBQ&usg=AFQjCNEVHne0jfLEnbKvcuFuITc_BPjufw&sig2=7JDSCN8a-jh2tSk1eOjQqQ&bvm=bv.98717601,d.eXY
-i found above as third link entitled: Multidimensional Direct Search Method - Math For College when i googled: two dimensional golder section search
+//	I think that coordinate cycling is a good solution here. see: 
+//	http://www.google.com/url?sa=t&rct=j&q=&esrc=s&source=web&cd=3&ved=0CDAQFjACahUKEwilyPfVzfXGAhUL0IAKHdxIDF4&url=http%3A%2F%2Fmathforcollege.com%2Fnm%2Fmws%2Fgen%2F09opt%2Fmws_gen_opt_txt_multidirect.doc&ei=RSazVeWRLouggwTckbHwBQ&usg=AFQjCNEVHne0jfLEnbKvcuFuITc_BPjufw&sig2=7JDSCN8a-jh2tSk1eOjQqQ&bvm=bv.98717601,d.eXY
+//	i found above as third link entitled: Multidimensional Direct Search Method - Math For College when i googled: two dimensional golder section search
 
-       */
+      */
     
       for(int i=0;i<1000;i++){//CLEARING LOOP
 	px[i]=0; py[i]=0; pz[i]=0;
